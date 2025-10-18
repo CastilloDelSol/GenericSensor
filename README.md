@@ -55,15 +55,24 @@ void loop() {
 ## ⚙️ Structure
 
 ```
-├── BaseFilter.h
-├── BaseMapper.h
-├── BaseMeasurementProcessor.h
-├── BaseFunctionProcessor.h
-├── PolynomialMapper.h
-├── EMAFilter.h
-├── GenericSensor.h
-├── BaseTableProcessor.h
-└── RTD_385.h
+IMeasurementProcessor (interface)
+├── BaseMapper (generic transformation interface + config)
+│   ├── BaseTableProcessor (shared logic for table-based transforms)
+│   │   ├── PiecewiseLinearTable
+│   │   └── CubicSplineTable
+│   └── PolynomialMapper
+└── BaseFilter (generic filter base class + config)
+	├── EMAFilter
+	├── SMAFilter
+	├── AlphaBetaFilter
+	├── ButterworthFilter
+	├── Kalman1DFilter
+	├── LowPassFilter
+	├── HighPassFilter
+	├── BiquadFilter
+	├── MedianFilter
+	├── WMAFilter
+	└── FIRFilter
 ```
 
 All modules are header-only and can be used independently.
