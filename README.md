@@ -10,7 +10,7 @@ Implements fast, numerically stable function mappers, filters, and measurement p
 - **Callendar–Van Dusen RTD Processor**  
   - Supports any platinum RTD with α = 0.00385 (IEC 60751)  
   - Exact quadratic solution for T ≥ 0 °C  
-  - Minimax-corrected single Newton step for T < 0 °C  
+  - Minimax-corrected seeded double Newton step for T < 0 °C  
   - Universal normalization (`R/R₀`) → works with Pt100, Pt500, Pt1000  
   - Accuracy: full float accuracy.
   - Valid range: −200 °C … +661 °C  
