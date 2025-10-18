@@ -1,4 +1,4 @@
-# RTD-Processing Framework (v0.1.0)
+# GenericSensor-Processing Framework (v0.1.0)
 
 A lightweight, modular C++ framework for precision sensor data processing — designed for microcontrollers (Arduino, ESP32, STM32) and laboratory-grade applications.  
 Implements fast, numerically stable function mappers, filters, and measurement processors for resistive temperature devices (RTDs) and generic analog sensors.
