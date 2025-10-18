@@ -12,9 +12,7 @@ Implements fast, numerically stable function mappers, filters, and measurement p
   - Exact quadratic solution for T ≥ 0 °C  
   - Minimax-corrected single Newton step for T < 0 °C  
   - Universal normalization (`R/R₀`) → works with Pt100, Pt500, Pt1000  
-  - Accuracy:  
-    - ≤ 1×10⁻⁷ °C for T ≥ 0 °C  
-    - ≤ 5.1×10⁻⁶ °C for T < 0 °C  
+  - Accuracy: full float accuracy.
   - Valid range: −200 °C … +661 °C  
 
 - **Polynomial Mapper**  
@@ -50,9 +48,7 @@ void loop() {
 
 **Internally:**
 - For T ≥ 0 °C: exact quadratic inverse  
-- For T < 0 °C: quadratic seed + minimax correction → one Newton step  
-- Performance (ESP32-C3): ≈ 1.2 µs per conversion  
-- Numerically stable to ±1 LSB (24-bit ADC equivalent)
+- For T < 0 °C: quadratic seed + minimax correction → two Newton steps 
 
 ---
 
