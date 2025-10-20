@@ -1,7 +1,6 @@
 #ifndef RTD_385_H
 #define RTD_385_H
 
-#include "BaseFunctionProcessor.h"
 #include "PolynomialMapper.h"
 
 /**
@@ -12,12 +11,7 @@
  *   R(T) = R0 * (1 + A*T + B*T² + C*(T - 100)*T³)
  *
  * - For T ≥ 0 °C: uses the exact quadratic inverse (C = 0)
- * - For T < 0 °C: applies a fitted minimax correction to the quadratic seed,
- *   followed by two Newton–Raphson refinement on the full CVD model.
- *
- * Accuracy:
- *   ≤ 1.0e−7 °C for T ≥ 0 °C  (exact quadratic inverse, float-limited)
- *   ≤ 1.0e−7 °C for T < 0 °C  (minimax-corrected double Newton step, float limited)
+ * - For T < 0 °C: applies a Remez minimax 7th degree polynomial
  *
  * Valid range (IEC 60751): −200 °C to +661 °C
  *
@@ -29,105 +23,69 @@
  *
  * Notes:
  *   – Uses a normalized resistance ratio R/R0 for scaling.
- *   – All constants are user-adjustable via setR0(), setA(), setB(), and setC().
+ *   – Adjust R0 via setR0().
  *   – Works for any nominal RTD (Pt100, Pt500, Pt1000) with α = 0.00385.
  */
-class RTD385 : public BaseFunctionProcessor
+class RTD385 : public PolynomialMapper
 {
-private:
-    // Store constants in cfg.f[]
-    inline float &R0() { return cfg.f[0]; }
-    inline float &A()  { return cfg.f[1]; }
-    inline float &B()  { return cfg.f[2]; }
-    inline float &C()  { return cfg.f[3]; }
-
-    // IEC 60751 default constants (α = 0.00385)
-    static constexpr float R_RATIO_MIN = 0.185201f;  // R/R0 at -200°C
-    static constexpr float R_RATIO_MAX = 3.904811f;  // R/R0 at +850°C
-    static constexpr uint8_t NUM_COEFFS = 3;
-    static constexpr float CVD_COEFFS[NUM_COEFFS] = {3.9083e-3f, -5.775e-7f, -4.183e-12f};
-    static constexpr float SEED_COEFFS[NUM_COEFFS] = {2.5965757e-03f, 1.0078029e+00f, 9.4974362e-05f};
-    static constexpr uint8_t NEWTON_STEPS = 2;
-
-    inline float Rmin() { return R0() * R_RATIO_MIN; }
-    inline float Rmax() { return R0() * R_RATIO_MAX; }
-
-    float inv;
-
 public:
-    RTD385(float r0 = 100.0f)
-    {
+    explicit RTD385(float r0 = 100.0f)
+    { 
+        // Initialize Callendar–Van Dusen constants
         R0() = r0;
-        A() = CVD_COEFFS[0];
-        B() = CVD_COEFFS[1];
-        C() = CVD_COEFFS[2];
+        A()  = CVD_A;
+        B()  = CVD_B;
+        C()  = CVD_C;
+
+        setR0(r0);
+        setDegree(NUM_COEFFS - 1);
+
+        // Load negative-region polynomial coefficients
+        for (uint8_t i = 0; i <= degree(); ++i) { c(i) = COEFFS_NEG[i]; }
+
         setFunctionType(FunctionType::RTD_CVD_385);
-        inv = 2.0f * B() * R0();
     }
 
-    ~RTD385() {}
+    // Set R0 and recalculate all precomputed coefficients based on R0.
+    void setR0(float r0)
+    {
+        R0()       = r0;
+        invR0      = 1.0f / R0();
+        b          = A() * R0();                   // linear coefficient (A·R0)
+        inv2a      = 1.0f / (2.0f * B() * R0());   // reciprocal of 2a = 2B·R0
+        b_squared  = b * b;                        // cache b²
+        a4         = 4.0f * B() * R0();            // 4a = 4B·R0
+    }
 
     float apply(float R) override
     {
-        // Clamp resistance to valid IEC 60751 range
-        R = constrain(R, Rmin(), Rmax());
-
-        // --- Callendar–Van Dusen coefficients ---
-        float a = B() * R0(), b = A() * R0(), c = R0() - R;
-        float d = b * b - 4.0f * a * c;
-
-        // ≥ 0 °C: exact solution
-        //float T = (-b + sqrtf(d)) / (2.0f * a);
-        float T = (-b + sqrtf(d)) * inv;
-        if (R >= R0()) return T;
-
-        // < 0 °C: refine quadratic seed using fitted correction, then one Newton step
-        T = (SEED_COEFFS[2] * T + SEED_COEFFS[1]) * T + SEED_COEFFS[0];
-
-        // < 0 °C: Newton-Raphson refinements on full CVD
-        for (uint8_t i = 0; i < NEWTON_STEPS; ++i)
-        {
-            float T2 = T * T;
-            float T3 = T2 * T;
-            float f  = R0() * (1.0f + A() * T + B() * T2 + C() * (T - 100.0f) * T3) - R;
-            float fp = R0() * (A() + 2.0f * B() * T + C() * T2 * (4.0f * T - 300.0f));
-            T -= f / fp;
-        }
-
-        return T;
+        // Normalize and clamp to valid range
+        float r = constrain(R * invR0, RATIO_MIN, RATIO_MAX);
+        return (r < 1.0f) ? PolynomialMapper::apply(r) : T_from_r_pos(r);
     }
 
-    void setR0(float r0) { R0() = r0; inv = 2.0f * B() * R0(); }
-};
-
-/**
- * Input:  resistance R (Ω) of a platinum RTD with α = 0.00385 (IEC 60751)
- * Output: temperature in °C
- *
- * Implements the inverse Callendar–Van Dusen (CVD) equation:
- *   R(T) = R0 * (1 + A*T + B*T² + C*(T - 100)*T³)
- *
- * For T < 0 °C: uses a 7-degree minimax polynomial fit of the inverse.
- * For T ≥ 0 °C: uses the exact quadratic inverse of the simplified CVD (C = 0).
- *
- * Constants (IEC 60751, α = 0.00385):
- *   A = 3.9083e−3
- *   B = −5.775e−7
- *   C = −4.183e−12 (not used here)
- *
- * Max abs error of the negative-region polynomial:
- *   ≈ 4 × 10⁻⁶ °C (−200 … 0 °C)
- */
-class RTD385Approximation : public PolynomialMapper
-{
 private:
-    // Accessors for parameters stored in cfg.f[]
-    inline float &R0()        { return cfg.f[8]; }
-    inline float &InvR0()     { return cfg.f[9]; }
-    inline float &A4R0()      { return cfg.f[10]; }   // 4 * A_coeff * R0
-    inline float &A_coeff()   { return cfg.f[11]; }   // A * R0
-    inline float &Inv2B()     { return cfg.f[12]; }   // 1 / (2 * B * R0)
-    inline float &A_coeff2()  { return cfg.f[13]; }   // (A * R0)²
+    // Accessors into cfg storage
+    inline float &R0() { return cfg.f[8]; }
+    inline float &A()  { return cfg.f[9]; }
+    inline float &B()  { return cfg.f[10]; }
+    inline float &C()  { return cfg.f[11]; }
+
+    // Precomputed values for positive-branch inversion
+    float b;           // A·R0
+    float inv2a;       // 1 / (2·B·R0)
+    float b_squared;   // (A·R0)²
+    float a4;          // 4·B·R0
+    float invR0;       // 1 / R0
+
+    // ---- IEC 60751 constants ----
+    static constexpr float CVD_A =  3.9083e-3f;
+    static constexpr float CVD_B = -5.775e-7f;
+    static constexpr float CVD_C = -4.183e-12f;
+
+    // Normalized R/R0 range for −200 … +850 °C
+    static constexpr float RATIO_MIN = 0.1852f;
+    static constexpr float RATIO_MAX = 3.33106f;
 
     static constexpr uint8_t NUM_COEFFS = 8;
     static constexpr float COEFFS_NEG[NUM_COEFFS] = {
@@ -135,48 +93,13 @@ private:
         -2.7283411e+00f,  1.1117969e+00f,  4.1203939e-01f, -1.3757725e-01f
     };
 
-    static constexpr float A_CVD = 3.9083e-3f;
-    static constexpr float B_CVD = -5.775e-7f;
-    static constexpr float C_CVD = -4.183e-12f;
-
-public:
-    explicit RTD385Approximation(float r0 = 100.0f)
+    // ---- Positive branch: analytic quadratic solution ----
+    inline float T_from_r_pos(float r)
     {
-        setR0(r0);
-        setDegree(NUM_COEFFS - 1);
-
-        // Load negative-region polynomial coefficients
-        for (uint8_t i = 0; i <= degree(); ++i) { c(i) = COEFFS_NEG[i]; }
-    }
-
-    ~RTD385Approximation() override = default;
-
-    float apply(float R) override
-    {
-        const float r_ratio = R * InvR0();
-
-        if (r_ratio < 1.0f)
-        {
-            // Negative region: minimax polynomial inverse
-            return PolynomialMapper::apply(r_ratio);
-        }
-        else
-        {
-            // Positive region: exact quadratic inverse (C = 0)
-            const float c_term = R0() - R;
-            const float discriminant = A_coeff2() - A4R0() * c_term;
-            return (-A_coeff() + sqrtf(discriminant)) * Inv2B();
-        }
-    }
-
-    void setR0(float r0)
-    {
-        R0()       = r0;
-        InvR0()    = 1.0f / r0;
-        A_coeff()   = A_CVD * r0;               // A * R0
-        A_coeff2()  = A_coeff() * A_coeff(); // (A * R0)²
-        A4R0()      = 4.0f * B_CVD * r0;        // 4 * B * R0
-        Inv2B()     = 1.0f / (2.0f * B_CVD * r0);
+        // Express in Ω-domain for better float precision near 0 °C
+        float c = R0() * (1.0f - r);     // (R0 − R)
+        float d = b_squared - a4 * c;    // discriminant b² − 4a·c
+        return (-b + sqrtf(d)) * inv2a;
     }
 };
 
@@ -256,5 +179,6 @@ public:
 
     ~RTD385_N50C120C_PT100() = default;
 };
+
 
 #endif // RTD_385_H
