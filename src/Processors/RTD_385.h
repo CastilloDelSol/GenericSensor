@@ -41,7 +41,7 @@ public:
         setDegree(NUM_COEFFS - 1);
 
         // Load negative-region polynomial coefficients
-        for (uint8_t i = 0; i <= degree(); ++i) { c(i) = COEFFS_NEG[i]; }
+        for (uint8_t i = 0; i < NUM_COEFFS; ++i) { setCoefficient(i, COEFFS_NEG[i]); }
 
         setFunctionType(FunctionType::RTD_CVD_385);
     }
@@ -182,3 +182,4 @@ public:
 
 
 #endif // RTD_385_H
+
